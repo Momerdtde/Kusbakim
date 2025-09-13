@@ -261,21 +261,32 @@
                     const isMedicineDayForCage = cage.birds.some(b => isMedicineDay(b));
 
                     const cageActionsHTML = cage.birds.length > 0 ? `
-                        <div class="border-t pt-4 mt-4 border-gray-200 flex flex-col sm:flex-row gap-2">
-                            <button data-action="feed-all" data-cage-id="${cage.id}" class="${areAllBirdsInCageFed ? 'bg-green-500 hover:bg-green-600' : 'bg-amber-500 hover:bg-amber-600'} flex-1 text-white font-bold py-2 px-3 rounded-lg transition-colors shadow-sm">
+                        <div class="border-t pt-4 mt-4 border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <button data-action="feed-all" data-cage-id="${cage.id}" class="${areAllBirdsInCageFed ? 'bg-green-500 hover:bg-green-600' : 'bg-amber-500 hover:bg-amber-600'} text-white font-bold py-2 px-3 rounded-lg transition-colors shadow-sm">
                                 ${areAllBirdsInCageFed ? 'Yem Verildi' : 'Yem Ver'}
                             </button>
-                            <button data-action="water-all" data-cage-id="${cage.id}" class="${areAllBirdsInCageWatered ? 'bg-green-500 hover:bg-green-600' : (isMedicineDayForCage ? 'bg-pink-500 hover:bg-pink-600' : 'bg-sky-500 hover:bg-sky-600')} flex-1 text-white font-bold py-2 px-3 rounded-lg transition-colors shadow-sm">
+                            <button data-action="water-all" data-cage-id="${cage.id}" class="${areAllBirdsInCageWatered ? 'bg-green-500 hover:bg-green-600' : (isMedicineDayForCage ? 'bg-pink-500 hover:bg-pink-600' : 'bg-sky-500 hover:bg-sky-600')} text-white font-bold py-2 px-3 rounded-lg transition-colors shadow-sm">
                                 ${areAllBirdsInCageWatered ? 'Su Verildi' : (isMedicineDayForCage ? 'İlaçlı Su Ver' : 'Su Ver')}
+                            </button>
+                            <button data-action="clean-cage" data-cage-id="${cage.id}" class="bg-slate-500 hover:bg-slate-600 text-white font-bold py-2 px-3 rounded-lg transition-colors shadow-sm">
+                                Kafesi Temizle
                             </button>
                         </div>
                     ` : '';
 
                     const colorOptionsHTML = BIRD_COLORS.map((color, index) => `<div><input type="radio" id="color-${cage.id}-${index}" name="bird-color-${cage.id}" value="${index}" ${index === 0 ? 'checked' : ''} class="hidden"><label for="color-${cage.id}-${index}" title="${color.name}"><div class="color-selector" style="background-color: ${color.hex};"></div></label></div>`).join('');
 
+                    let lastCleanedText = '<p class="text-xs text-gray-500 mt-1">Henüz temizlenmedi.</p>';
+                    if (cage.lastCleanedDate) {
+                        lastCleanedText = `<p class="text-xs text-gray-500 mt-1">Son Temizlik: ${new Date(cage.lastCleanedDate).toLocaleDateString('tr-TR')}</p>`;
+                    }
+
                     cageEl.innerHTML = `
-                        <div class="flex justify-between items-center border-b pb-4 border-gray-200">
-                            <h3 class="text-2xl font-bold text-gray-800 header-font">${cage.name}</h3>
+                        <div class="flex justify-between items-start border-b pb-4 border-gray-200">
+                            <div>
+                                <h3 class="text-2xl font-bold text-gray-800 header-font">${cage.name}</h3>
+                                ${lastCleanedText}
+                            </div>
                             <button data-action="delete-cage" data-cage-id="${cage.id}" class="text-gray-400 hover:text-red-500 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                             </button>
@@ -339,7 +350,6 @@
                         const logsForDay = logHistory.filter(log => log.date === dateString);
                         if (logsForDay.length > 0) {
                              cages.forEach(cage => {
-                                // Sadece o gün log kaydı olan kafesler için nokta göster
                                 if (logsForDay.some(l => l.message.includes(`'${cage.name}'`))) {
                                     const wasFed = logsForDay.some(l => l.message.includes(`'${cage.name}'`) && l.message.includes('yemlendi'));
                                     const wasWatered = logsForDay.some(l => l.message.includes(`'${cage.name}'`) && (l.message.includes('suyu verildi') || l.message.includes('ilacı verildi')));
@@ -365,7 +375,7 @@
                 e.preventDefault();
                 const cageName = cageNameInput.value.trim();
                 if (cageName) {
-                    const newCage = { id: Date.now(), name: cageName, birds: [] };
+                    const newCage = { id: Date.now(), name: cageName, birds: [], lastCleanedDate: null };
                     cages.push(newCage);
                     cageNameInput.value = '';
                     logAction(`'${cageName}' kafesi eklendi.`);
@@ -401,14 +411,14 @@
                 }
 
                 const { action, cageId, birdId } = button.dataset;
-                let dataChanged = false;
                 const cage = cages.find(c => c.id === parseInt(cageId));
                 
                 if (action === 'feed-all' && cage) {
                     const allFed = cage.birds.every(b => b.isFed);
                     cage.birds.forEach(b => { b.isFed = !allFed; });
                     if (!allFed) logAction(`'${cage.name}' kafesindeki tüm kuşlar yemlendi.`);
-                    dataChanged = true;
+                    saveData();
+                    renderCages();
                 }
 
                 if (action === 'water-all' && cage) {
@@ -422,14 +432,23 @@
                             logAction(`'${cage.name}' kafesindeki tüm kuşların ilacı verildi.`);
                         }
                     }
-                    dataChanged = true;
+                    saveData();
+                    renderCages();
+                }
+
+                if (action === 'clean-cage' && cage) {
+                    cage.lastCleanedDate = new Date().toISOString().split('T')[0];
+                    logAction(`'${cage.name}' kafesi temizlendi.`);
+                    saveData();
+                    renderCages();
                 }
                 
                 if (action === 'delete-cage' && cage) {
                     openConfirmationModal('Kafesi Sil', `'${cage.name}' kafesini ve içindeki tüm kuşları silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`, () => {
                         logAction(`'${cage.name}' kafesi silindi.`);
                         cages = cages.filter(c => c.id !== parseInt(cageId));
-                        dataChanged = true;
+                        saveData();
+                        renderCages();
                     });
                 }
                 
@@ -439,14 +458,10 @@
                         openConfirmationModal('Kuşu Sil', `'${bird.name}' adlı kuşu silmek istediğinize emin misiniz?`, () => {
                             logAction(`'${bird.name}' kuşu silindi.`);
                             cage.birds = cage.birds.filter(b => b.id !== parseInt(birdId));
-                            dataChanged = true;
+                            saveData();
+                            renderCages();
                         });
                     }
-                }
-
-                if (dataChanged) {
-                    saveData();
-                    renderCages();
                 }
             });
             
@@ -465,6 +480,4 @@
     </script>
 </body>
 </html>
-
-
 
